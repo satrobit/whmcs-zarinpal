@@ -11,26 +11,35 @@ include("../../../includes/functions.php");
 include("../../../includes/gatewayfunctions.php");
 include("../../../includes/invoicefunctions.php");
 
+function getVar($var)
+{
+	if (!isset($_GET[$var])) exit();
+	return $_GET[$var];
+}
+
+
 $gatewaymodule = 'zarinpalwg'; // Name of the module
 
-$GATEWAY = getGatewayVariables($gatewaymodule);
+$gateway = getGatewayVariables($gatewaymodule);
 
-if (!$GATEWAY['type']) die('Module Not Activated'); // Checks gateway module is active before accepting callback
+if (!$gateway['type']) die('Module Not Activated'); // Checks gateway module is active before accepting callback
 
 /* Get Returned Variables - Adjust for Post Variable Names from your Gateway's Documentation */
-$invoiceid = $_GET['invoiceid'];
-$Amount = $_GET['Amount'];
-$Authority = $_GET['Authority'];
 
-$invoiceid = checkCbInvoiceID($invoiceid, $GATEWAY['name']); // Checks invoice ID is a valid invoice number or ends processing
+$invoiceId = getVar('invoiceid');
+$amount = getVar('Amount');
+$authority = getVar('Authority');
+$status = getVar('Status');
 
-$CaculatedFee = round($Amount * 0.01);
 
-$PaidFee = ($GATEWAY['afp'] == 'on') ? 0 : $CaculatedFee;
-$HiddenFee = ($GATEWAY['afp'] == 'on') ? $CaculatedFee : 0;
+$invoiceId = checkCbInvoiceID($invoiceId, $gateway['name']); // Checks invoice ID is a valid invoice number or ends processing
 
-switch($GATEWAY['MirrorName'])
-{
+$caculatedFee = round($amount * 0.01);
+
+$paidFee = ($gateway['afp'] == 'on') ? 0 : $caculatedFee;
+$hiddenFee = ($gateway['afp'] == 'on') ? $caculatedFee : 0;
+
+switch($gateway['MirrorName']) {
 	case 'آلمان':
 		$mirror = 'de';
 		break;
@@ -42,14 +51,13 @@ switch($GATEWAY['MirrorName'])
 		break;
 }
 
-if($_GET['Status'] == 'OK')
-{
+if($status == 'OK') {
 	try {
 		$client = new SoapClient('https://' . $mirror . '.zarinpal.com/pg/services/WebGate/wsdl', ['encoding' => 'UTF-8']);
 		$resultO = $client->PaymentVerification([
-			'MerchantID'	 => $GATEWAY['merchantID'],
-			'Authority' 	 => $Authority,
-			'Amount'	 	 => $Amount + $HiddenFee
+			'MerchantID'	 => $gateway['merchantID'],
+			'Authority' 	 => $authority,
+			'Amount'	 	 => $amount + $hiddenFee
 			]);
 		
 		$result  = $resultO->Status;
@@ -61,23 +69,22 @@ if($_GET['Status'] == 'OK')
 		echo '<h2>وقوع وقفه!</h2>';
 		print_r($e);
 	}
+
 } else {
 	$resultO = new stdClass();
 	$result = -77;
 }
 
-if($GATEWAY['Currencies'] == 'Rial') {
-	$Amount  *= 10;
-	$PaidFee *= 10;
-}
+$amount = ($gateway['Currencies'] == 'Rial') ? $amount * 10 : $amount;
+$paidFee = ($gateway['Currencies'] == 'Rial') ? $paidFee * 10 : $paidFee;
 
 if ($result == 100) {
-	addInvoicePayment($invoiceid, $transid, $Amount, $PaidFee, $gatewaymodule); // Apply Payment to Invoice: invoiceid, transactionid, amount paid, fees, modulename
-	logTransaction($GATEWAY['name'], ['Get' => $_GET, 'Websevice' => (array) $resultO], 'Successful'); // Save to Gateway Log: name, data array, status
+	addInvoicePayment($invoiceId, $transid, $amount, $paidFee, $gatewaymodule); // Apply Payment to Invoice: invoiceId, transactionid, amount paid, fees, modulename
+	logTransaction($gateway['name'], ['Get' => $_GET, 'Websevice' => (array) $resultO], 'Successful'); // Save to Gateway Log: name, data array, status
 } else {
-	logTransaction($GATEWAY['name'], ['Get' => $_GET, 'Websevice' => (array) $resultO], 'Unsuccessful'); // Save to Gateway Log: name, data array, status
+	logTransaction($gateway['name'], ['Get' => $_GET, 'Websevice' => (array) $resultO], 'Unsuccessful'); // Save to Gateway Log: name, data array, status
 }
 
-Header('Location: ' . $CONFIG['SystemURL'] . '/clientarea.php?action=invoices');
+Header('Location: ' . $config['SystemURL'] . '/clientarea.php?action=invoices');
     
 ?>
